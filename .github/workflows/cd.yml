@@ -1,0 +1,92 @@
+name: Publish Image to Amazon ECR
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # for OIDC authentication with AWS
+
+env:
+  CI: true
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+
+concurrency:
+  group: ecr-publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-push:
+    name: Build and push Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Configure temporary AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          role-session-name: goldenowl-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: ${{ vars.AWS_ACCOUNT_ID }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Prepare immutable image reference
+        id: image
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          IMAGE_TAG="sha-${GITHUB_SHA}"
+          IMAGE_URI="${ECR_REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+
+          echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
+
+          # Check if image tag already exists in ECR
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" &>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Image already exists: $IMAGE_URI"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "New image will be built and published: $IMAGE_URI"
+          fi
+
+      - name: Build Docker image
+        if: steps.image.outputs.exists == 'false'
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: |
+          docker build \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --tag "${IMAGE_URI}" \
+            ./src
+
+      - name: Push Docker image
+        if: steps.image.outputs.exists == 'false'
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+        run: docker push "${IMAGE_URI}"
+
+      - name: Publish workflow summary
+        env:
+          IMAGE_URI: ${{ steps.image.outputs.uri }}
+          IMAGE_EXISTS: ${{ steps.image.outputs.exists }}
+        run: |
+          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
+          ### Amazon ECR image ###
+
+          - Image: \`$IMAGE_URI\`
+          - Commit: \`$GITHUB_SHA\`
+          - Already existed: \`$IMAGE_EXISTS\`
+          EOF
