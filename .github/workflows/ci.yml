@@ -68,11 +68,15 @@ jobs:
 
       - name: Verify app response
         run: |
-          curl --retry 5 --retry-delay 3 --retry-connrefused http://localhost:3000/ | grep "Welcome warriors to Golden Owl!"
+          sleep 10
+          curl --retry 5 --retry-delay 3 --retry-all-errors http://localhost:3000/ | grep "Welcome warriors to Golden Owl!"
         
       - name: Show container logs on failure
         if: failure()
-        run: docker logs goldenowl-app
+        run: |
+          docker logs goldenowl-app
+          docker ps -a
+          docker inspect goldenowl-app --format='{{.State.Status}} {{.State.ExitCode}}'
         
       - name: Remove container
         if: always()
