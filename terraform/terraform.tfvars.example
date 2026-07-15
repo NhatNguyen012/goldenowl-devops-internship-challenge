@@ -1,0 +1,9 @@
+aws_region         = "REPLACE_WITH_AWS_REGION"
+ecr_repository_name = "REPLACE_WITH_ECR_REPOSITORY_NAME"
+
+github_owner           = "REPLACE_WITH_GITHUB_OWNER"
+github_repository_name = "REPLACE_WITH_GITHUB_REPOSITORY_NAME"
+github_branch           = "REPLACE_WITH_GITHUB_BRANCH"
+
+github_owner_id      = "REPLACE_WITH_OWNER_ID"
+github_repository_id = "REPLACE_WITH_OWNER_ID"
