@@ -42,7 +42,7 @@ jobs:
         run: npm ci
 
       - name: Check linting
-        run: npm int:check
+        run: npm lint:check
 
       - name: Check formatting
         run: npm format:check
