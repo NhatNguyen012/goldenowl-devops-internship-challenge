@@ -73,6 +73,18 @@ variable "autoscaling_max_capacity" {
   default = 2
 }
 
+variable "task_cpu" {
+  description = "CPU for each task"
+  type        = number
+  default     = 512
+}
+
+variable "task_memory" {
+  description = "Memory for each task"
+  type        = number
+  default     = 1024
+}
+
 variable "autoscaling_cpu_target" {
   description = "Average CPU utilization target"
   type        = number
