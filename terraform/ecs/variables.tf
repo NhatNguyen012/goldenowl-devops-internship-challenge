@@ -56,18 +56,6 @@ variable "container_port" {
   default = 3000
 }
 
-variable "task_cpu" {
-  description = "CPU for each task"
-  type        = number
-  default     = 512
-}
-
-variable "task_memory" {
-  description = "Memory for each task"
-  type        = number
-  default     = 1024
-}
-
 variable "desired_count" {
   description = "Initial desired number of ECS tasks"
   type        = number
@@ -88,7 +76,7 @@ variable "autoscaling_max_capacity" {
 variable "autoscaling_cpu_target" {
   description = "Average CPU utilization target"
   type        = number
-  default     = 60
+  default     = 70
 }
 
 variable "log_retention_days" {

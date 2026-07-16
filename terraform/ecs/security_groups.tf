@@ -30,3 +30,32 @@ resource "aws_vpc_security_group_egress_rule" "alb_all" {
   ip_protocol       = "-1"
 }
 
+resource "aws_security_group" "ecs_tasks" {
+  name_prefix = "${local.name_prefix}-ecs-"
+  description = "Allows application traffic from the ALB to ECS tasks"
+  vpc_id      = aws_vpc.app.id
+
+  tags = {
+    Name = "${local.name_prefix}-ecs-sg"
+  }
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ecs_from_alb" {
+  security_group_id            = aws_security_group.ecs_tasks.id
+  description                  = "Allow application traffic only from the ALB"
+  referenced_security_group_id = aws_security_group.alb.id
+  from_port                    = var.container_port
+  to_port                      = var.container_port
+  ip_protocol                  = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "ecs_all" {
+  security_group_id = aws_security_group.ecs_tasks.id
+  description       = "Allow ECS tasks to pull images and publish logs"
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
+}
