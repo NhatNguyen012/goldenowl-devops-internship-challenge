@@ -13,6 +13,7 @@ variable "environment" {
   default = "test"
 }
 
+# New VPC
 variable "vpc_cidr" {
   description = "CIDR for application VPC"
   type        = string
