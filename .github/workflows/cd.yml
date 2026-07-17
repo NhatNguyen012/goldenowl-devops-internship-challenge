@@ -1,4 +1,4 @@
-name: Publish Image to Amazon ECR
+name: Build, Publish and Deploy to Amazon ECS
 
 on:
   push:
@@ -8,28 +8,33 @@ on:
 
 permissions:
   contents: read
-  id-token: write # for OIDC authentication with AWS
+  id-token: write
 
 env:
-  CI: true
   AWS_REGION: ${{ vars.AWS_REGION }}
   ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY }}
+  ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+  ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+  ECS_CONTAINER_NAME: ${{ vars.ECS_CONTAINER_NAME }}
+  APPLICATION_URL: ${{ vars.APPLICATION_URL }}
 
 concurrency:
-  group: ecr-publish-${{ github.ref }}
+  group: production-ecs-deployment
   cancel-in-progress: false
 
 jobs:
-  build-and-push:
-    name: Build and push Docker image
+  publish-and-deploy:
+    name: Publish image and deploy ECS service
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+
+    if: github.ref == 'refs/heads/master'
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
 
-      - name: Configure temporary AWS credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
@@ -52,13 +57,15 @@ jobs:
           echo "tag=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "uri=${IMAGE_URI}" >> "$GITHUB_OUTPUT"
 
-          # Check if image tag already exists in ECR
-          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" &>/dev/null; then
+          if aws ecr describe-images \
+            --repository-name "$ECR_REPOSITORY" \
+            --image-ids "imageTag=${IMAGE_TAG}" \
+            > /dev/null 2>&1; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "Image already exists: $IMAGE_URI"
+            echo "Image already exists: ${IMAGE_URI}"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "New image will be built and published: $IMAGE_URI"
+            echo "New image will be built: ${IMAGE_URI}"
           fi
 
       - name: Build Docker image
@@ -76,17 +83,69 @@ jobs:
         if: steps.image.outputs.exists == 'false'
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
-        run: docker push "${IMAGE_URI}"
+        run: docker push "$IMAGE_URI"
 
-      - name: Publish workflow summary
+      - name: Download current ECS task definition
+        run: |
+          TASK_DEFINITION_ARN="$(
+            aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE" \
+              --query 'services[0].taskDefinition' \
+              --output text
+          )"
+
+          echo "Current task definition: ${TASK_DEFINITION_ARN}"
+
+          aws ecs describe-task-definition \
+            --task-definition "$TASK_DEFINITION_ARN" \
+            --query taskDefinition \
+            > "${RUNNER_TEMP}/task-definition.json"
+
+      - name: Insert new image into task definition
+        id: render-task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ runner.temp }}/task-definition.json
+          container-name: ${{ env.ECS_CONTAINER_NAME }}
+          image: ${{ steps.image.outputs.uri }}
+
+      - name: Deploy task definition to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-max-delay-seconds: 15
+          max-retries: 3
+
+      - name: Smoke test deployed application
+        run: |
+          curl --retry 5 --retry-delay 5 --retry-all-errors --fail \
+            "${APPLICATION_URL}" | grep "Welcome warriors to Golden Owl!"
+
+      - name: Publish deployment summary
         env:
           IMAGE_URI: ${{ steps.image.outputs.uri }}
           IMAGE_EXISTS: ${{ steps.image.outputs.exists }}
         run: |
-          cat <<EOF >> "$GITHUB_STEP_SUMMARY"
-          ### Amazon ECR image ###
+          DEPLOYED_TASK_DEFINITION="$(
+            aws ecs describe-services \
+              --cluster "$ECS_CLUSTER" \
+              --services "$ECS_SERVICE" \
+              --query 'services[0].taskDefinition' \
+              --output text
+          )"
 
-          - Image: \`$IMAGE_URI\`
-          - Commit: \`$GITHUB_SHA\`
-          - Already existed: \`$IMAGE_EXISTS\`
-          EOF
+          {
+            echo "## Amazon ECS deployment"
+            echo
+            echo "- Image: \`${IMAGE_URI}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Image already existed: \`${IMAGE_EXISTS}\`"
+            echo "- Cluster: \`${ECS_CLUSTER}\`"
+            echo "- Service: \`${ECS_SERVICE}\`"
+            echo "- Task definition: \`${DEPLOYED_TASK_DEFINITION}\`"
+            echo "- Application URL: ${APPLICATION_URL}"
+          } >> "$GITHUB_STEP_SUMMARY"

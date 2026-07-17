@@ -1,0 +1,10 @@
+aws_region  = "ap-southeast-1"
+environment = "test"
+
+container_image = "AWS_ACCOUNT_ID.dkr.ecr.ap-southeast-1.amazonaws.com/goldenowl-devops-challenge:sha-GIT_COMMIT_SHA"
+
+desired_count               = 1
+autoscaling_min_capacity    = 1
+autoscaling_max_capacity    = 2
+autoscaling_cpu_target      = 70
+log_retention_days          = 7

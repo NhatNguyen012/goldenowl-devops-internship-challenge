@@ -22,4 +22,5 @@ coverage/
 *.tfvars
 !*.tfvars.example
 *.tfplan
+tfplan
 *.log
