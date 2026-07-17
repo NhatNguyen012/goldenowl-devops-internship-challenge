@@ -4,9 +4,20 @@ on:
   push:
     branches:
       - "feature/**"
+    paths-ignore:
+      - "**.md"
+      - "**.drawio"
+      - "**.png"
+      - "terraform/**"
+      - ".gitignore"
   pull_request:
     branches:
       - master # trigger on pull request to master
+    paths-ignore:
+      - "**.md"
+      - "**.drawio"
+      - "**.png"
+      - ".gitignore"
 
 permissions:
   contents: read
