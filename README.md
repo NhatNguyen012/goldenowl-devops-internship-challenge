@@ -1,45 +1,224 @@
-# Golden Owl DevOps Internship - Technical Test
-At Golden Owl, we believe in treating infrastructure as code and automating resource provisioning to the fullest extent possible. 
+# Golden Owl DevOps Internship Challenge
 
-In this technical test, we challenge you to create a robust CI build pipeline using GitHub Actions. You have the freedom to complete this test in your local environment.
+A containerized Node.js application with a fully automated CI/CD pipeline deployed to AWS using GitHub Actions, Amazon ECR, and Amazon ECS Fargate (provisioned with Terraform).
 
-## Your Mission 🌟
-Your mission, should you choose to accept it, is to craft a CI job that:
-1. Forks this repository to your personal GitHub account.
-2. Dockerizes a Node.js application.
-3. Establishes an automated CI/CD build process using GitHub Actions workflow and a container registry service such as DockerHub or Amazon Elastic Container Registry (ECR) or similar services.
-4. Initiates CI tests automatically when changes are pushed to the feature branch on GitHub.
-5. Utilizes GitHub Actions for Continuous Deployment (CD) to deploy the application to major cloud providers like AWS EC2, AWS ECS or Google Cloud (please submit the deployment link).
-## Nice to have 🎨
-We would be genuinely delighted if you could complement your submission with a `visual flow diagram`, illustrating the sequence of tasks you performed, including the implementation of a `load balancer` and `auto scaling` for the deployed application. This additional touch would greatly enhance our understanding and appreciation of your work.
+**Live endpoint:** [http://goldenowl-devops-alb-1233269263.ap-southeast-1.elb.amazonaws.com](http://goldenowl-devops-alb-1233269263.ap-southeast-1.elb.amazonaws.com/)
 
-Reference tools for creating visual flow diagrams:
-- https://www.drawio.com/
-- https://excalidraw.com/
-- https://www.eraser.io/
-  
-Including a visual representation of your workflow will provide valuable insights into your approach and make your submission stand out. Thank you for considering this enhancement! 
-## The Bigger Picture 🌏
-This test is designed to evaluate your ability to implement modern automated infrastructure practices while demonstrating a basic understanding of Docker containers. In your solution, we encourage you to prioritize readability, maintainability, and the principles of DevOps.
+```sh
+curl http://goldenowl-devops-alb-1233269263.ap-southeast-1.elb.amazonaws.com
 
- ## Submission Guidelines 📬
-Your solution should be showcased in a public GitHub repository. We encourage you to commit early and often. We prefer to see a history of iterative progress rather than a single massive push. When you've completed the assignment, kindly share the URL of your repository with us.
-
- ## Running the Node.js Application Locally  🏃‍♂️
- This is a Node.js application, and running it locally is straightforward:
-- Navigate to the `src` directory by executing `cd src`.
-- Install the project's dependencies listed in the package.json file by running `npm i`.
-- Execute `npm test` to run the application's tests.
-- Start the HTTP server with `npm start`.
-
-You can test it using the following command:
-  
-```shell
-curl localhost:3000
-```
-You should receive the following response:
-```json
+e.g:
+nhatnguyen@openstack-aio:~/Desktop/goldenowl-devops-internship-challenge$ curl http://goldenowl-devops-alb-1233269263.ap-southeast-1.elb.amazonaws.com
 {"message":"Welcome warriors to Golden Owl!"}
 ```
 
-Are you ready to embark on this DevOps journey with us? 🚀 Best of luck with your assignment! 🌟
+---
+
+## Architecture
+
+**Link visual flow diagrams:** [drive.google.com/file/d/1eBmD9w_pqyAu1WcoG9Wx5QUBJ3naG1ZZ/view?usp=drive_link](https://drive.google.com/file/d/1eBmD9w_pqyAu1WcoG9Wx5QUBJ3naG1ZZ/view?usp=drive_link)
+
+![Architecture](image/README/Architecture.png)
+
+### Infrastructure components
+
+| Component          | Service                      | Detail                                     |
+| ------------------ | ---------------------------- | ------------------------------------------ |
+| Container registry | Amazon ECR                   | Image immutability enabled, scan on push   |
+| Compute            | Amazon ECS Fargate           | Serverless containers, no EC2 to manage    |
+| Load balancer      | Application Load Balancer    | HTTP listener on target group             |
+| Auto scaling       | AWS Application Auto Scaling | Target tracking on CPU, 1–2 tasks         |
+| Networking         | VPC + public subnets         | 2 AZs (ap-southeast-1a, ap-southeast-1b)   |
+| Logging            | Amazon CloudWatch Logs       | 7-day retention                            |
+| IaC                | Terraform                    | Modules: terraform/ecr/ and terraform/ecs/ |
+
+---
+
+## CI Pipeline — GitHub Actions
+
+**Trigger:** push to **feature/xxx** branches, or pull request targeting **master** (Documentation and Terraform files are excluded)
+
+There are 2 tasks:
+
+1. **lint-and-test**: Checkout → Setup Node.js 24 → npm ci → ESLint check → Prettier format check → npm test
+2. **docker-build**: Build image → Run container on port 3000 → curl to test → assert response → Remove container
+
+---
+
+## CD Pipeline — GitHub Actions
+
+**Trigger:** push to master (excludes documentation files), or manual workflow_dispatch
+
+**publish-and-deploy:**
+
+1. Checkout
+2. Configure AWS credentials (OIDC)
+3. ECR login
+4. Prepare image tag
+5. Build Docker image (skipped if same SHA already in ECR)
+6. Push to ECR
+7. Download current ECS task definition
+8. Render new task definition with updated image URI
+9. Deploy to ECS and wait for service stability
+10. Test live ALB endpoint
+
+---
+
+### Authentication — OIDC
+
+- AWS credentials are obtained using GitHub's OIDC provider.
+- The IAM role goldenowl-devops-github-deployer has a trust policy scoped to this specific repository and branch.
+- No static AWS keys are stored.
+
+---
+
+## Repository Structure
+
+```text
+.
+├── .github/
+│   └── workflows/
+│       ├── ci.yml          # Lint, test, Docker build verification
+│       └── cd.yml          # Build → ECR push → ECS deploy
+├── src/
+│   ├── Dockerfile
+│   ├── index.js
+│   ├── routes/
+│   └── tests/
+└── terraform/
+    ├── ecr/                # ECR repository + OIDC provider
+    └── ecs/                # ECS cluster, service, ALB, networking, IAM, auto scaling
+```
+
+---
+
+## Infrastructure — Terraform
+
+Infrastructure is split into two independent modules.
+
+### ECR module
+
+Provisions:
+
+- ECR repository with image immutability and scan-on-push
+- GitHub Actions OIDC provider
+
+### ECS module
+
+Provisions:
+
+- VPC with 2 public subnets across 2 availability zones
+- Security groups (ALB → ECS tasks)
+- Application Load Balancer + target group + listener
+- ECS cluster + Fargate task definition + service
+- CloudWatch log group
+- IAM roles (task execution, task, GitHub deployer)
+- Application Auto Scaling: target tracking on CPU utilization (70%), min 1 / max 2 tasks
+
+### Deploy infrastructure
+
+#### Prerequisites
+
+* AWS CLI installed and configured with appropriate permissions.
+* Terraform installed.
+* Docker installed and running locally.
+
+#### Step 1: Provision ECR and OIDC provider
+
+First, provision the ECR repository and the GitHub OIDC provider configuration. This role is needed so GitHub Actions can safely push images to AWS without static access keys.
+
+```sh
+cd terraform/ecr
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit terraform.tfvars with your settings:
+
+* aws_region: ap-southeast-1
+* github_owner: Your GitHub username
+* github_repository_name: goldenowl-devops-internship-challenge
+* github_branch: master
+
+Initialize and apply the configuration:
+
+```sh
+terraform init
+terraform apply
+```
+
+Take note of the Terraform outputs.
+
+---
+
+#### Step 2: Build and push the initial bootstrap image
+
+Before provisioning the ECS cluster, push an initial bootstrap image to your ECR repository. Otherwise, the ECS task creation will fail because the image specified in the task definition doesn't exist yet.
+
+Run these commands:
+
+```sh
+# Authenticate Docker to ECR
+aws ecr get-login-password --region ap-southeast-1 | docker login --username AWS --password-stdin <AWS_ACCOUNT_ID>.dkr.ecr.ap-southeast-1.amazonaws.com
+
+# Build the Docker image locally
+docker build -t <ECR_REPOSITORY_URL>:latest ./src
+
+# Push the image to ECR
+docker push <ECR_REPOSITORY_URL>:latest
+```
+
+---
+
+#### Step 3: Provision ECS and Networking
+
+Now, navigate to the ECS directory to provision the VPC, Load Balancer, ECS cluster, service, task definitions, and Auto Scaling.
+
+```sh
+cd terraform/ecs
+cp terraform.tfvars.example terraform.tfvars
+```
+
+Edit terraform.tfvars:
+
+* container_image: Fill this with the ECR image URI you pushed in Step 2 (e.g., <ECR_REPOSITORY_URL>:latest).
+* Verify GitHub repository owner and name match your settings.
+
+Apply the Terraform configuration:
+
+```sh
+terraform init
+terraform apply
+```
+
+Once completed, it will output the **Application Load Balancer DNS name**.
+
+---
+
+#### Step 4: Configure GitHub Actions variables
+
+To enable the CI/CD pipeline to deploy new changes automatically, add the following variables in your GitHub Repository settings (Settings → Secrets and variables → Actions → Variables):
+
+| Variable Name      | Value Example                                                   |
+| ------------------ | --------------------------------------------------------------- |
+| AWS_REGION         | ap-southeast-1                                                  |
+| AWS_ACCOUNT_ID     | 123456789012                                                    |
+| AWS_ROLE_ARN       | arn:aws:iam::123456789012:role/goldenowl-devops-github-deployer |
+| ECR_REPOSITORY     | goldenowl-devops-challenge                                      |
+| ECS_CLUSTER        | goldenowl-devops-challenge-cluster                              |
+| ECS_SERVICE        | goldenowl-devops-challenge-service                              |
+| ECS_CONTAINER_NAME | goldenowl-app                                                   |
+| APPLICATION_URL    | http://<ALB_DNS_NAME>                                           |
+
+---
+
+## Running Locally
+
+```sh
+cd src
+npm install
+npm test          # run tests
+npm start         # start HTTP server on port 3000
+
+curl localhost:3000
+# {"message":"Welcome warriors to Golden Owl!"}
+```
