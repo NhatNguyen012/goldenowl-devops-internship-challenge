@@ -3,7 +3,7 @@ name: Golden Owl CI
 on:
   push:
     branches:
-      - "feature/**" # trigger on push to feature branches: "CI tests automatically when changes are pushed to the feature branch on GitHub"
+      - "feature/**"
   pull_request:
     branches:
       - master # trigger on pull request to master
@@ -54,7 +54,7 @@ jobs:
     name: Build Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: lint-and-test # Only run if lint-and-test passes
+    needs: lint-and-test
 
     steps:
       - name: Checkout repository
