@@ -50,9 +50,13 @@ data "aws_iam_policy_document" "github_deployer_assume_role" {
     }
 
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_owner}/${var.github_repository_name}:ref:refs/heads/${var.github_branch}"]
+      values   = [
+        "repo:${var.github_owner}/${var.github_repository_name}:ref:refs/heads/${var.github_branch}",
+        "repo:${var.github_owner}@${var.github_owner_id}/${var.github_repository_name}@${var.github_repository_id}:ref:refs/heads/${var.github_branch}",
+        "repo:${var.github_owner}*/*:ref:refs/heads/${var.github_branch}"
+      ]
     }
   }
 }

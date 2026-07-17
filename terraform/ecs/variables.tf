@@ -13,6 +13,16 @@ variable "github_branch" {
   default = "master"
 }
 
+variable "github_owner_id" {
+  type    = string
+  default = "165571170"
+}
+
+variable "github_repository_id" {
+  type    = string
+  default = "1301156354"
+}
+
 variable "aws_region" {
   type    = string
   default = "ap-southeast-1"
